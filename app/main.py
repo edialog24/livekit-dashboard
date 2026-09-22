@@ -61,6 +61,14 @@ app = FastAPI(
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.environ.get("APP_SECRET_KEY", "dev-secret-key-change-in-production"),
+    # LOCAL CHANGE: Starlette defaults https_only to False, so the session cookie would ship
+    # without the Secure flag. Nothing writes to request.session today — the CSRF token lives on
+    # request.state — so no cookie is actually set, which is exactly why this is worth fixing now:
+    # the first line of code that touches the session would otherwise leak it over plain HTTP
+    # without anyone noticing. This deployment is HTTPS-only (the ingress answers 308 on :80 and
+    # sends HSTS), so there is nothing to lose.
+    https_only=True,
+    same_site="lax",
 )
 
 
@@ -222,8 +230,23 @@ async def server_error_handler(request: Request, exc):
 
 # Health check endpoint (no auth required)
 @app.get("/health", response_class=HTMLResponse)
-async def health_check():
-    """Health check endpoint"""
+async def health_check(request: Request):
+    """Health check endpoint.
+
+    LOCAL ADDITION: when the request arrives carrying a GAP-Signature, the answer says whether it
+    verified. That is how the shared key between oauth2-proxy and this app is checked without
+    having to lock anyone out first — reach it through the proxy and read the word. A request with
+    no signature (kubelet probing the pod directly) answers plain OK, as upstream does.
+    """
+    from app.security.proxy_signature import verify as verify_proxy_signature
+
+    if request.headers.get("GAP-Signature"):
+        result = verify_proxy_signature(request)
+        if result is None:
+            return HTMLResponse(content="OK signature:not-configured", status_code=200)
+        return HTMLResponse(
+            content="OK signature:%s" % ("match" if result else "MISMATCH"), status_code=200
+        )
     return HTMLResponse(content="OK", status_code=200)
 
 

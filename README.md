@@ -405,6 +405,35 @@ The application automatically sets these security headers:
 
 ## 🐳 Docker Deployment
 
+### Publishing to ghcr.io/edialog24 (Youtello)
+
+The telephony cluster runs this dashboard from the org registry, not from a local build:
+`k8s/livekit-dashboard/deployment.yaml` in `telephonycluster` pins
+`ghcr.io/edialog24/livekit-dashboard:<tag>`. A change here is only live once it has been pushed
+there and the tag in that manifest has been bumped.
+
+```bash
+# 1. Log in once (a classic PAT with write:packages; GH_TOKEN in your shell, not in a file)
+echo "$GH_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+
+# 2. Tag by the commit it was built from, so a running pod can be traced back to source.
+#    Never reuse a tag: the deployment pins one, and rebuilding it in place leaves some
+#    nodes on the old layers.
+TAG="$(git rev-parse --short HEAD)-youtello$(date +%y%m%d)"
+
+# 3. Build for the cluster's architecture. DOKS nodes are amd64; an arm64 Mac build
+#    starts and then crash-loops with "exec format error".
+docker buildx build --platform linux/amd64 \
+  -t "ghcr.io/edialog24/livekit-dashboard:${TAG}" \
+  --push .
+
+echo "Now set image: ghcr.io/edialog24/livekit-dashboard:${TAG}"
+echo "in telephonycluster/k8s/livekit-dashboard/deployment.yaml and deploy."
+```
+
+The image is private, so the cluster pulls it with the `ghcr.io` imagePullSecret that the
+deployment already references — a new tag needs no change there.
+
 ### Production Deployment with Docker
 
 ```bash

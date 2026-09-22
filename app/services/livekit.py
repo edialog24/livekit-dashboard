@@ -7,9 +7,15 @@ import json
 import logging
 import os
 import time
+import uuid
 from typing import List, Optional, Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+# Deadlines for the RTC stats probe. It runs behind a button, so it must fail visibly rather
+# than hang: a room that cannot be joined should say so in seconds, not spin.
+STATS_CONNECT_TIMEOUT = 8.0
+STATS_READ_TIMEOUT = 5.0
 
 from livekit import api, rtc
 
@@ -1553,9 +1559,14 @@ class LiveKitClient:
                 room_join=True, room=room_name, can_publish=False, can_subscribe=True
             )
 
+            # A UNIQUE identity per connection. A LiveKit identity names one participant, so a
+            # fixed one made every stats request collide with the one before it: the server
+            # evicted the older participant ("removing duplicate participant"), the new
+            # connection raced that eviction, and the button spun until it gave up. Two people
+            # opening the dashboard, or one clicking twice, was enough.
             token = (
                 api.AccessToken(self.key, self.secret)
-                .with_identity("dashboard-stats-client")
+                .with_identity(f"dashboard-stats-{uuid.uuid4().hex[:12]}")
                 .with_name("Dashboard Stats Client")
                 .with_grants(grant)
                 .to_jwt()
@@ -1564,18 +1575,28 @@ class LiveKitClient:
             # Create room and connect
             room = rtc.Room()
 
-            # Connect to the room
-            await room.connect(self.url, token)
+            # Bounded, because this runs behind a button someone is watching. Without a deadline
+            # a room that cannot be joined leaves the request hanging on the SDK's own retries.
+            await asyncio.wait_for(room.connect(self.url, token), timeout=STATS_CONNECT_TIMEOUT)
 
             # Wait a moment for connection to stabilize
             await asyncio.sleep(0.5)
 
             # Get RTC stats
             if room.isconnected():
-                stats = await room.get_rtc_stats()
+                stats = await asyncio.wait_for(
+                    room.get_rtc_stats(), timeout=STATS_READ_TIMEOUT
+                )
 
             latency = (time.perf_counter() - t0) * 1000  # Convert to ms
 
+        except asyncio.TimeoutError:
+            # str() on a TimeoutError is empty, which reached the UI as a blank error.
+            error_msg = (
+                f"timed out joining {room_name} for stats "
+                f"(connect {STATS_CONNECT_TIMEOUT:g}s / read {STATS_READ_TIMEOUT:g}s)"
+            )
+            latency = (time.perf_counter() - t0) * 1000 if "t0" in locals() else 0.0
         except Exception as e:
             error_msg = str(e)
             latency = (time.perf_counter() - t0) * 1000 if "t0" in locals() else 0.0

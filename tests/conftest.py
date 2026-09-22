@@ -11,8 +11,8 @@ def setup_test_env():
     os.environ["LIVEKIT_URL"] = "http://localhost:7880"
     os.environ["LIVEKIT_API_KEY"] = "test-key"
     os.environ["LIVEKIT_API_SECRET"] = "test-secret"
-    os.environ["ADMIN_USERNAME"] = "admin"
-    os.environ["ADMIN_PASSWORD"] = "testpass"
+    # No ADMIN_USERNAME/ADMIN_PASSWORD: this build has no password of its own. Identity comes
+    # from oauth2-proxy's headers (see app/security/basic_auth.py).
     os.environ["APP_SECRET_KEY"] = "test-secret-key"
     os.environ["DEBUG"] = "true"
     os.environ["ENABLE_SIP"] = "false"
@@ -29,11 +29,11 @@ def client():
 
 @pytest.fixture
 def auth_headers():
-    """Return basic auth headers for testing"""
-    import base64
-    
-    credentials = f"{os.environ['ADMIN_USERNAME']}:{os.environ['ADMIN_PASSWORD']}"
-    encoded = base64.b64encode(credentials.encode()).decode()
-    
-    return {"Authorization": f"Basic {encoded}"}
+    """The headers oauth2-proxy puts on a request once it has signed someone in.
+
+    GAP_SIGNATURE_KEY is deliberately left unset for the suite, so signature verification is not
+    configured and these headers alone are accepted - the same as running without --signature-key.
+    test_security.py covers the signed path on its own.
+    """
+    return {"X-Forwarded-Email": "tester@example.com", "X-Forwarded-User": "tester"}
 

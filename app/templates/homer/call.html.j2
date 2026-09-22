@@ -40,9 +40,9 @@
 <div class="top-bar-actions">
     <div class="user-menu">
         <i class="bi bi-person-circle"></i>
-        <span>{{ current_user or 'admin' }}</span>
+        <span>{{ current_user or 'signed in' }}</span>
     </div>
-    <a href="/logout" class="btn btn-secondary btn-sm">
+    <a href="/oauth2/sign_out" class="btn btn-secondary btn-sm">
         <i class="bi bi-box-arrow-right"></i> Logout
     </a>
 </div>

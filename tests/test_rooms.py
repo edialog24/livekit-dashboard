@@ -9,9 +9,8 @@ from fastapi.testclient import TestClient
 
 
 def _auth_headers():
-    import base64
-    creds = f"{os.environ['ADMIN_USERNAME']}:{os.environ['ADMIN_PASSWORD']}"
-    return {"Authorization": f"Basic {base64.b64encode(creds.encode()).decode()}"}
+    """Same as the conftest fixture: what oauth2-proxy sends once someone is signed in."""
+    return {"X-Forwarded-Email": "tester@example.com", "X-Forwarded-User": "tester"}
 
 
 def _csrf_token():
